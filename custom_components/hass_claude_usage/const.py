@@ -26,6 +26,10 @@ CONF_ACCOUNT_ID = "account_id"
 CONF_ACCOUNT_NAME = "account_name"
 CONF_ACCOUNT_EMAIL = "account_email"
 CONF_SUBSCRIPTION_LEVEL = "subscription_level"
+# Optional outbound proxy (http://host:port) for every Anthropic request, for
+# networks where Home Assistant has no direct egress. Stored in the entry options;
+# also collected on the setup form so it is available for the first OAuth exchange.
+CONF_PROXY_URL = "proxy_url"
 
 # Sensor definitions: (key, name, unit, icon, device_class)
 # key corresponds to a path in the parsed usage data dict

@@ -21,6 +21,7 @@ from .const import (
     CONF_ACCESS_TOKEN,
     CONF_ACCOUNT_ID,
     CONF_EXPIRES_AT,
+    CONF_PROXY_URL,
     CONF_REFRESH_TOKEN,
     CONF_UPDATE_INTERVAL,
     DEFAULT_UPDATE_INTERVAL,
@@ -199,11 +200,15 @@ class ClaudeUsageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "Authorization": f"Bearer {access_token}",
             "anthropic-beta": API_BETA_HEADER,
         }
+        proxy = (self.config_entry.options.get(CONF_PROXY_URL) or "").strip() or None
 
         try:
             session = aiohttp_client.async_get_clientsession(self.hass)
             resp = await session.get(
-                USAGE_API_URL, headers=headers, timeout=aiohttp.ClientTimeout(total=15)
+                USAGE_API_URL,
+                headers=headers,
+                proxy=proxy,
+                timeout=aiohttp.ClientTimeout(total=15),
             )
             if resp.status == 401:
                 raise ConfigEntryAuthFailed("Authentication failed - token may be invalid")
@@ -229,12 +234,14 @@ class ClaudeUsageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "refresh_token": refresh_token,
             "client_id": OAUTH_CLIENT_ID,
         }
+        proxy = (self.config_entry.options.get(CONF_PROXY_URL) or "").strip() or None
 
         try:
             session = aiohttp_client.async_get_clientsession(self.hass)
             resp = await session.post(
                 OAUTH_TOKEN_URL,
                 json=payload,
+                proxy=proxy,
                 timeout=aiohttp.ClientTimeout(total=15),
             )
             if not resp.ok:
