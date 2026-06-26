@@ -47,7 +47,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ClaudeUsageConfigEntry) 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ClaudeUsageConfigEntry) -> bool:
     """Unload a config entry."""
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unload_ok:
+        await entry.runtime_data.async_shutdown()
+    return unload_ok
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ClaudeUsageConfigEntry) -> None:
@@ -71,6 +74,7 @@ class ClaudeUsageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             name=DOMAIN,
             update_interval=timedelta(seconds=interval),
             config_entry=entry,
+            always_update=False,
         )
 
     async def _async_update_data(self) -> dict[str, Any]:
@@ -105,7 +109,7 @@ class ClaudeUsageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         refresh_token = self.config_entry.data.get(CONF_REFRESH_TOKEN)
         if not refresh_token:
-            raise UpdateFailed("No refresh token available")
+            raise ConfigEntryAuthFailed("No refresh token available")
 
         payload = {
             "grant_type": "refresh_token",
@@ -117,8 +121,7 @@ class ClaudeUsageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             session = aiohttp_client.async_get_clientsession(self.hass)
             resp = await session.post(
                 OAUTH_TOKEN_URL,
-                data=payload,
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                json=payload,
                 timeout=aiohttp.ClientTimeout(total=15),
             )
             if not resp.ok:
