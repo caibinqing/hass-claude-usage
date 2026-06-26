@@ -29,6 +29,7 @@ from .const import (
     CONF_ACCOUNT_ID,
     CONF_ACCOUNT_NAME,
     CONF_EXPIRES_AT,
+    CONF_PROXY_URL,
     CONF_REFRESH_TOKEN,
     CONF_SUBSCRIPTION_LEVEL,
     CONF_UPDATE_INTERVAL,
@@ -80,19 +81,23 @@ class ClaudeUsageConfigFlow(ConfigFlow, domain=DOMAIN):
         )
         oauth_url = f"{OAUTH_AUTHORIZE_URL}?{params}"
 
+        proxy = ""
         if user_input is not None:
             auth_code = user_input.get("auth_code", "").strip()
+            proxy = (user_input.get(CONF_PROXY_URL) or "").strip()
             if not auth_code:
                 errors["auth_code"] = "missing_code"
+            elif proxy and not proxy.startswith("http://"):
+                errors[CONF_PROXY_URL] = "invalid_proxy"
             else:
-                # Exchange code for tokens
-                token_data = await self._exchange_code(auth_code)
+                # Exchange code for tokens (through the proxy if one was given)
+                token_data = await self._exchange_code(auth_code, proxy or None)
                 if token_data is None:
                     errors["auth_code"] = "exchange_failed"
                 else:
                     # Fetch account info for display and dedup
                     account_id, account_name, account_email, subscription_level = (
-                        await self._fetch_account_info(token_data["access_token"])
+                        await self._fetch_account_info(token_data["access_token"], proxy or None)
                     )
 
                     # Build title with name and subscription level
@@ -121,6 +126,7 @@ class ClaudeUsageConfigFlow(ConfigFlow, domain=DOMAIN):
                         },
                         options={
                             CONF_UPDATE_INTERVAL: DEFAULT_UPDATE_INTERVAL,
+                            CONF_PROXY_URL: proxy,
                         },
                     )
 
@@ -129,13 +135,14 @@ class ClaudeUsageConfigFlow(ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema(
                 {
                     vol.Required("auth_code"): str,
+                    vol.Optional(CONF_PROXY_URL, default=proxy): str,
                 }
             ),
             description_placeholders={"url": oauth_url},
             errors=errors,
         )
 
-    async def _exchange_code(self, code: str) -> dict[str, Any] | None:
+    async def _exchange_code(self, code: str, proxy: str | None = None) -> dict[str, Any] | None:
         """Exchange authorization code for tokens."""
         # The code from the callback URL may contain a # separator with state
         code_parts = code.split("#")
@@ -161,6 +168,7 @@ class ClaudeUsageConfigFlow(ConfigFlow, domain=DOMAIN):
             resp = await session.post(
                 OAUTH_TOKEN_URL,
                 json=payload,
+                proxy=proxy,
                 timeout=aiohttp.ClientTimeout(total=15),
             )
             if not resp.ok:
@@ -176,7 +184,7 @@ class ClaudeUsageConfigFlow(ConfigFlow, domain=DOMAIN):
             return None
 
     async def _fetch_account_info(
-        self, access_token: str
+        self, access_token: str, proxy: str | None = None
     ) -> tuple[str | None, str | None, str | None, str | None]:
         """Fetch account id, name, email, and subscription level from the profile API."""
         try:
@@ -187,6 +195,7 @@ class ClaudeUsageConfigFlow(ConfigFlow, domain=DOMAIN):
                     "Authorization": f"Bearer {access_token}",
                     "anthropic-beta": API_BETA_HEADER,
                 },
+                proxy=proxy,
                 timeout=aiohttp.ClientTimeout(total=15),
             )
             if not resp.ok:
@@ -253,15 +262,16 @@ class ClaudeUsageConfigFlow(ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             auth_code = user_input.get("auth_code", "").strip()
+            proxy = (self._get_reauth_entry().options.get(CONF_PROXY_URL) or "").strip() or None
             if not auth_code:
                 errors["auth_code"] = "missing_code"
             else:
-                token_data = await self._exchange_code(auth_code)
+                token_data = await self._exchange_code(auth_code, proxy)
                 if token_data is None:
                     errors["auth_code"] = "exchange_failed"
                 else:
                     account_id, account_name, account_email, subscription_level = (
-                        await self._fetch_account_info(token_data["access_token"])
+                        await self._fetch_account_info(token_data["access_token"], proxy)
                     )
 
                     entry = (
@@ -319,12 +329,20 @@ class ClaudeUsageOptionsFlow(OptionsFlow):
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Manage the options."""
+        errors: dict[str, str] = {}
+
         if user_input is not None:
-            return self.async_create_entry(data=user_input)
+            proxy = (user_input.get(CONF_PROXY_URL) or "").strip()
+            if proxy and not proxy.startswith("http://"):
+                errors[CONF_PROXY_URL] = "invalid_proxy"
+            else:
+                user_input[CONF_PROXY_URL] = proxy
+                return self.async_create_entry(data=user_input)
 
         current_interval = self.config_entry.options.get(
             CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL
         )
+        current_proxy = self.config_entry.options.get(CONF_PROXY_URL, "")
 
         return self.async_show_form(
             step_id="init",
@@ -333,8 +351,10 @@ class ClaudeUsageOptionsFlow(OptionsFlow):
                     vol.Required(CONF_UPDATE_INTERVAL, default=current_interval): vol.All(
                         int, vol.Range(min=60, max=3600)
                     ),
+                    vol.Optional(CONF_PROXY_URL, default=current_proxy): str,
                 }
             ),
+            errors=errors,
         )
 
 

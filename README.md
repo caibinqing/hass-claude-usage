@@ -46,6 +46,24 @@ The integration uses Anthropic's OAuth flow:
 
 - **Update interval** - How often to poll the usage API (default: 300 seconds, min: 60, max: 3600).
 
+## Proxy (fork addition)
+
+If your Home Assistant host has no direct internet egress and must reach Anthropic
+through an internal proxy, enter the proxy URL in the integration's config flow:
+
+- **During setup** — the "Outbound proxy URL" field on the authentication form is
+  used immediately for the OAuth token exchange, so setup works even when HA cannot
+  reach Anthropic directly.
+- **Later** — change it any time under Settings → Devices & Services → Claude Usage →
+  Configure.
+
+Every Anthropic request (usage poll, token refresh, OAuth code exchange, profile
+lookup) is routed through it. Notes:
+
+- Use an `http://` proxy URL **even for the https endpoints** — aiohttp tunnels via
+  `CONNECT` and rejects `https://` proxy URLs.
+- Leave the field blank to disable the proxy; behaviour is then identical to upstream.
+
 ## Dashboard
 
 A pre-built dashboard is included in the `dashboards/` directory. To use it:

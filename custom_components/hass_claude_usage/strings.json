@@ -3,9 +3,10 @@
     "step": {
       "user": {
         "title": "Authenticate with Claude",
-        "description": "To authenticate, [open this link]({url}) to log in with Anthropic.\n\nAfter authorizing, paste the authorization code below.\n\nNote: The code may include a '#' character - paste the entire string.",
+        "description": "To authenticate, [open this link]({url}) to log in with Anthropic.\n\nAfter authorizing, paste the authorization code below.\n\nNote: The code may include a '#' character - paste the entire string.\n\nIf Home Assistant cannot reach Anthropic directly, set an outbound proxy (http://host:port) - it is used immediately for this authentication.",
         "data": {
-          "auth_code": "Authorization Code"
+          "auth_code": "Authorization Code",
+          "proxy_url": "Outbound proxy URL (optional)"
         }
       },
       "reauth_confirm": {
@@ -18,7 +19,8 @@
     },
     "error": {
       "missing_code": "Please enter the authorization code",
-      "exchange_failed": "Failed to exchange code for tokens. Please try again."
+      "exchange_failed": "Failed to exchange code for tokens. Please try again.",
+      "invalid_proxy": "Proxy URL must start with http:// (aiohttp tunnels HTTPS via CONNECT and does not accept https:// proxies)."
     },
     "abort": {
       "already_configured": "This Claude account is already configured",
@@ -30,11 +32,15 @@
     "step": {
       "init": {
         "title": "Claude Usage Options",
-        "description": "Configure polling interval. Note: the usage API has rate limits, so avoid setting this too low.",
+        "description": "Configure the polling interval and an optional outbound proxy. Note: the usage API has rate limits, so avoid setting the interval too low.",
         "data": {
-          "update_interval": "Update interval (seconds)"
+          "update_interval": "Update interval (seconds)",
+          "proxy_url": "Outbound proxy URL (optional, http://host:port)"
         }
       }
+    },
+    "error": {
+      "invalid_proxy": "Proxy URL must start with http://."
     }
   }
 }
