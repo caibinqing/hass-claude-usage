@@ -17,6 +17,16 @@ API_BETA_HEADER = "oauth-2025-04-20"
 # Defaults
 DEFAULT_UPDATE_INTERVAL = 300  # seconds
 
+# The rolling 5-hour window's `resets_at` drifts by a few seconds on every poll,
+# so a timestamp sensor flips its displayed minute back and forth and floods the
+# recorder/history with noise. A real reset always jumps by hours (or days), so we
+# keep the previously reported value whenever the new one lands within this many
+# seconds of it. Comfortably above the observed drift, well below any real reset.
+RESET_TIME_JITTER_SECONDS = 300
+
+# Timestamp keys subject to that jitter suppression.
+RESET_TIME_KEYS = ("session_reset_time", "week_reset_time", "week_sonnet_reset_time")
+
 # Config keys
 CONF_ACCESS_TOKEN = "access_token"
 CONF_REFRESH_TOKEN = "refresh_token"

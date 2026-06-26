@@ -29,6 +29,8 @@ from .const import (
     OAUTH_CLIENT_ID,
     OAUTH_TOKEN_URL,
     PROFILE_API_URL,
+    RESET_TIME_JITTER_SECONDS,
+    RESET_TIME_KEYS,
     USAGE_API_URL,
 )
 
@@ -217,7 +219,9 @@ class ClaudeUsageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except aiohttp.ClientError as err:
             raise UpdateFailed(f"Error fetching usage data: {err}") from err
 
-        return _parse_usage(raw)
+        parsed = _parse_usage(raw)
+        _stabilize_reset_times(parsed, self.data)
+        return parsed
 
     async def _ensure_valid_token(self) -> None:
         """Refresh the access token if expired."""
@@ -260,6 +264,29 @@ class ClaudeUsageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             CONF_EXPIRES_AT: time.time() + token_data.get("expires_in", 3600),
         }
         self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
+
+
+def _stabilize_reset_times(new: dict[str, Any], old: dict[str, Any] | None) -> None:
+    """Suppress sub-threshold jitter in reset timestamps, in place.
+
+    The API's rolling-window ``resets_at`` values wobble by a few seconds between
+    polls, crossing minute boundaries and spamming the recorder with noise. Keep
+    the previously reported timestamp unless the new one moved far enough to be a
+    genuine reset (see RESET_TIME_JITTER_SECONDS)."""
+    if not old:
+        return
+    for key in RESET_TIME_KEYS:
+        new_val, old_val = new.get(key), old.get(key)
+        if not new_val or not old_val:
+            continue
+        try:
+            drift = (
+                datetime.fromisoformat(new_val) - datetime.fromisoformat(old_val)
+            ).total_seconds()
+        except (ValueError, TypeError):
+            continue
+        if abs(drift) < RESET_TIME_JITTER_SECONDS:
+            new[key] = old_val
 
 
 def _parse_usage(raw: dict[str, Any]) -> dict[str, Any]:
