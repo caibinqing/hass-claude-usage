@@ -13,6 +13,7 @@ from urllib.parse import urlencode
 import aiohttp
 import voluptuous as vol
 from homeassistant.config_entries import (
+    SOURCE_RECONFIGURE,
     ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
@@ -24,6 +25,7 @@ from homeassistant.helpers import aiohttp_client
 from .const import (
     API_BETA_HEADER,
     CONF_ACCESS_TOKEN,
+    CONF_ACCOUNT_EMAIL,
     CONF_ACCOUNT_NAME,
     CONF_EXPIRES_AT,
     CONF_REFRESH_TOKEN,
@@ -88,8 +90,8 @@ class ClaudeUsageConfigFlow(ConfigFlow, domain=DOMAIN):
                     errors["auth_code"] = "exchange_failed"
                 else:
                     # Fetch account info for display
-                    account_name, subscription_level = await self._fetch_account_info(
-                        token_data["access_token"]
+                    account_name, account_email, subscription_level = (
+                        await self._fetch_account_info(token_data["access_token"])
                     )
 
                     # Build title with name and subscription level
@@ -102,7 +104,8 @@ class ClaudeUsageConfigFlow(ConfigFlow, domain=DOMAIN):
                             title_parts[-1] += ")"
                     title = " ".join(title_parts)
 
-                    await self.async_set_unique_id(DOMAIN)
+                    unique_id = account_email or account_name or DOMAIN
+                    await self.async_set_unique_id(unique_id)
                     self._abort_if_unique_id_configured()
                     return self.async_create_entry(
                         title=title,
@@ -111,6 +114,7 @@ class ClaudeUsageConfigFlow(ConfigFlow, domain=DOMAIN):
                             CONF_REFRESH_TOKEN: token_data.get("refresh_token", ""),
                             CONF_EXPIRES_AT: time.time() + token_data.get("expires_in", 3600),
                             CONF_ACCOUNT_NAME: account_name,
+                            CONF_ACCOUNT_EMAIL: account_email,
                             CONF_SUBSCRIPTION_LEVEL: subscription_level,
                         },
                         options={
@@ -169,8 +173,10 @@ class ClaudeUsageConfigFlow(ConfigFlow, domain=DOMAIN):
             _LOGGER.exception("Token exchange request failed")
             return None
 
-    async def _fetch_account_info(self, access_token: str) -> tuple[str | None, str | None]:
-        """Fetch account name and subscription level from the profile API."""
+    async def _fetch_account_info(
+        self, access_token: str
+    ) -> tuple[str | None, str | None, str | None]:
+        """Fetch account name, email, and subscription level from the profile API."""
         try:
             session = aiohttp_client.async_get_clientsession(self.hass)
             resp = await session.get(
@@ -183,14 +189,14 @@ class ClaudeUsageConfigFlow(ConfigFlow, domain=DOMAIN):
             )
             if not resp.ok:
                 _LOGGER.warning("Failed to fetch account profile (%s)", resp.status)
-                return None, None
+                return None, None, None
             profile = await resp.json()
             account = profile.get("account", {})
 
-            # Get account name
-            account_name = (
-                account.get("display_name") or account.get("full_name") or account.get("email")
-            )
+            account_email = account.get("email")
+
+            # Get account name (prefer display name, fall back to email)
+            account_name = account.get("display_name") or account.get("full_name") or account_email
 
             # Get subscription level
             subscription_level = None
@@ -199,14 +205,20 @@ class ClaudeUsageConfigFlow(ConfigFlow, domain=DOMAIN):
             elif account.get("has_claude_pro"):
                 subscription_level = "Pro"
 
-            return account_name, subscription_level
+            return account_name, account_email, subscription_level
         except (aiohttp.ClientError, KeyError):
             _LOGGER.exception("Error fetching account info")
-            return None, None
+            return None, None, None
 
     async def async_step_reauth(self, entry_data: dict[str, Any]) -> ConfigFlowResult:
         """Handle reauth when token is invalid."""
         return await self.async_step_reauth_confirm()
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle user-initiated reconfigure (e.g. re-auth as a different account)."""
+        return await self.async_step_reauth_confirm(user_input)
 
     async def async_step_reauth_confirm(
         self, user_input: dict[str, Any] | None = None
@@ -243,17 +255,35 @@ class ClaudeUsageConfigFlow(ConfigFlow, domain=DOMAIN):
                 if token_data is None:
                     errors["auth_code"] = "exchange_failed"
                 else:
-                    account_name, subscription_level = await self._fetch_account_info(
-                        token_data["access_token"]
+                    account_name, account_email, subscription_level = (
+                        await self._fetch_account_info(token_data["access_token"])
                     )
 
+                    entry = (
+                        self._get_reconfigure_entry()
+                        if self.source == SOURCE_RECONFIGURE
+                        else self._get_reauth_entry()
+                    )
+
+                    # Both reauth and reconfigure may re-point an entry at a
+                    # different account, so guard against two entries ending up
+                    # tracking the same account.
+                    new_unique_id = account_email or account_name
+                    if new_unique_id and any(
+                        other.entry_id != entry.entry_id and other.unique_id == new_unique_id
+                        for other in self._async_current_entries()
+                    ):
+                        return self.async_abort(reason="already_configured")
+
                     return self.async_update_reload_and_abort(
-                        self._get_reauth_entry(),
+                        entry,
+                        unique_id=new_unique_id or entry.unique_id,
                         data_updates={
                             CONF_ACCESS_TOKEN: token_data["access_token"],
                             CONF_REFRESH_TOKEN: token_data.get("refresh_token", ""),
                             CONF_EXPIRES_AT: time.time() + token_data.get("expires_in", 3600),
                             CONF_ACCOUNT_NAME: account_name,
+                            CONF_ACCOUNT_EMAIL: account_email,
                             CONF_SUBSCRIPTION_LEVEL: subscription_level,
                         },
                     )
