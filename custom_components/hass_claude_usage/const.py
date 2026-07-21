@@ -24,7 +24,8 @@ DEFAULT_UPDATE_INTERVAL = 300  # seconds
 # seconds of it. Comfortably above the observed drift, well below any real reset.
 RESET_TIME_JITTER_SECONDS = 300
 
-# Timestamp keys subject to that jitter suppression.
+# Flat timestamp keys subject to that jitter suppression; the resets_at inside
+# each limits[] bucket is stabilized separately in _stabilize_reset_times.
 RESET_TIME_KEYS = ("session_reset_time", "week_reset_time", "week_sonnet_reset_time")
 
 # Config keys

@@ -272,21 +272,33 @@ def _stabilize_reset_times(new: dict[str, Any], old: dict[str, Any] | None) -> N
     The API's rolling-window ``resets_at`` values wobble by a few seconds between
     polls, crossing minute boundaries and spamming the recorder with noise. Keep
     the previously reported timestamp unless the new one moved far enough to be a
-    genuine reset (see RESET_TIME_JITTER_SECONDS)."""
+    genuine reset (see RESET_TIME_JITTER_SECONDS). Covers the flat *_reset_time
+    keys and each limits[] bucket's resets_at (an entity attribute, so its churn
+    hits the recorder too)."""
     if not old:
         return
     for key in RESET_TIME_KEYS:
-        new_val, old_val = new.get(key), old.get(key)
-        if not new_val or not old_val:
-            continue
-        try:
-            drift = (
-                datetime.fromisoformat(new_val) - datetime.fromisoformat(old_val)
-            ).total_seconds()
-        except (ValueError, TypeError):
-            continue
-        if abs(drift) < RESET_TIME_JITTER_SECONDS:
-            new[key] = old_val
+        if key in new:
+            new[key] = _stable_reset_value(new[key], old.get(key))
+    old_limits = old.get("limits") or {}
+    for bucket_key, bucket in (new.get("limits") or {}).items():
+        old_bucket = old_limits.get(bucket_key) or {}
+        bucket["resets_at"] = _stable_reset_value(
+            bucket.get("resets_at"), old_bucket.get("resets_at")
+        )
+
+
+def _stable_reset_value(new_val: Any, old_val: Any) -> Any:
+    """Return old_val when new_val drifted less than the jitter threshold."""
+    if not new_val or not old_val:
+        return new_val
+    try:
+        drift = (
+            datetime.fromisoformat(new_val) - datetime.fromisoformat(old_val)
+        ).total_seconds()
+    except (ValueError, TypeError):
+        return new_val
+    return old_val if abs(drift) < RESET_TIME_JITTER_SECONDS else new_val
 
 
 def _parse_usage(raw: dict[str, Any]) -> dict[str, Any]:
