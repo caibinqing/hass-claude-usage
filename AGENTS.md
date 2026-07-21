@@ -91,6 +91,16 @@ Refactored from a standalone daemon concept originally explored in the `cc-playg
     "utilization": 55.0,
     "resets_at": "2026-02-01T..."
   },
+  "limits": [                      // flat per-window list (observed 2026-07)
+    { "kind": "session",       "group": "session", "percent": 13, "severity": "normal",
+      "resets_at": "...", "scope": null, "is_active": true },
+    { "kind": "weekly_all",    "group": "weekly",  "percent": 2,  "severity": "normal",
+      "resets_at": "...", "scope": null, "is_active": false },
+    { "kind": "weekly_scoped", "group": "weekly",  "percent": 3,  "severity": "normal",
+      "resets_at": "...",
+      "scope": { "model": { "id": null, "display_name": "Fable" }, "surface": null },
+      "is_active": false }
+  ],
   "extra_usage": {
     "is_enabled": true,
     "utilization": 23.4,
@@ -103,8 +113,19 @@ Refactored from a standalone daemon concept originally explored in the `cc-playg
 **Notes:**
 - All fields are optional depending on subscription tier
 - Free tier returns empty object `{}`
-- Extra usage only present if enabled by user
+- Extra usage only present if enabled by user; newer accounts report a top-level
+  `spend` object instead (see `_parse_usage`)
 - Credits are in cents (U.S. currency)
+- Newer model-scoped weekly limits (e.g. Fable, observed 2026-07) exist **only**
+  as `limits[]` entries with `kind: "weekly_scoped"` — no `seven_day_fable`
+  top-level object, integer `percent` only (no float `utilization`).
+  `scope.model.id` is null, so `scope.model.display_name` is the only stable
+  handle; `_parse_limits` keys buckets by kind + slugified model + surface and
+  the sensor platform creates one dynamic sensor per bucket at runtime.
+  Buckets whose meter is already exposed by a static sensor (see
+  `STATIC_LIMIT_EQUIVALENTS` in const.py) are skipped while the flat object
+  still has data. A batch of null top-level placeholder fields
+  (`seven_day_cowork`, `tangelo`, `nimbus_quill`, ...) also appears; ignored.
 
 ### OAuth Configuration
 

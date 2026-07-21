@@ -22,6 +22,7 @@ from .const import (
     CONF_SUBSCRIPTION_LEVEL,
     DOMAIN,
     SENSOR_DEFINITIONS,
+    STATIC_LIMIT_EQUIVALENTS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -47,12 +48,22 @@ async def async_setup_entry(
     known_limit_keys: set[str] = set()
 
     def _sync_limit_entities() -> None:
-        limits = (coordinator.data or {}).get("limits") or {}
-        new_entities = [
-            ClaudeUsageLimitSensor(coordinator, entry, key, meta["label"])
-            for key, meta in limits.items()
-            if key not in known_limit_keys
-        ]
+        data = coordinator.data or {}
+        limits = data.get("limits") or {}
+        new_entities: list[ClaudeUsageLimitSensor] = []
+        for key, meta in limits.items():
+            if key in known_limit_keys:
+                continue
+            # Skip buckets already covered by a static sensor fed from the
+            # payload's dedicated top-level object (five_hour / seven_day /
+            # seven_day_sonnet) — those carry float utilization vs the bucket's
+            # integer percent. Skipped keys stay out of known_limit_keys, so if
+            # the flat object ever drops from the payload the bucket sensor is
+            # created on that update instead.
+            static_key = STATIC_LIMIT_EQUIVALENTS.get(key)
+            if static_key and data.get(static_key) is not None:
+                continue
+            new_entities.append(ClaudeUsageLimitSensor(coordinator, entry, key, meta["label"]))
         if new_entities:
             known_limit_keys.update(e.limit_key for e in new_entities)
             async_add_entities(new_entities)

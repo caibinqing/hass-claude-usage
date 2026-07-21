@@ -88,3 +88,12 @@ SENSOR_DEFINITIONS = [
     ),
     ("api_error", "API Error", "errors", "mdi:alert-circle", None),
 ]
+
+# limits[] bucket keys whose meter is already exposed by a static sensor above
+# (fed from the dedicated five_hour / seven_day / seven_day_sonnet objects).
+# No dynamic bucket sensor is created while the mapped data key has a value.
+STATIC_LIMIT_EQUIVALENTS = {
+    "session": "session_usage_percent",
+    "weekly_all": "week_usage_percent",
+    "weekly_scoped_sonnet": "week_sonnet_usage_percent",
+}
